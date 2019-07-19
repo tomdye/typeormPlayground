@@ -1,72 +1,78 @@
 import "reflect-metadata";
 import {createConnection} from "typeorm";
-import {Building} from "./entity/Building";
-import { Age } from "./entity/Age";
-import { Sex } from "./entity/Sex";
+import {Program} from "./entity/Program";
+import {Category} from "./entity/Category";
 
 createConnection().then(async connection => {
 
-	console.log("Inserting a new building into the database...");
-	const adultAge = new Age();
-	adultAge.code = 'ADULT';
-	adultAge.name = 'adult';
+	const parent = new Category();
+	parent.id = 1;
+	parent.name = 'parent';
 
-	const juvAge = new Age();
-	juvAge.code = 'JUVENILE';
-	juvAge.name = 'juvenile';
+	const child1 = new Category();
+	child1.id = 2;
+	child1.name = 'child 1';
+	child1.parent = parent;
 
-	const maleSex = new Sex();
-	maleSex.code = 'MALE';
-	maleSex.name = 'male';
+	const child2 = new Category();
+	child2.id = 3;
+	child2.name = 'child 2';
+	child2.parent = parent;
 
-	const femaleSex = new Sex();
-	femaleSex.code = 'FEMALE';
-	femaleSex.name = 'female';
+	const parentProgram = new Program();
+	parentProgram.name = 'parent program';
+	parentProgram.category = parent;
 
-	await connection.manager.save(adultAge);
-	await connection.manager.save(juvAge);
-	await connection.manager.save(maleSex);
-	await connection.manager.save(femaleSex);
+	const child1Program = new Program();
+	child1Program.name = 'child1 program';
+	child1Program.category = child1;
 
-	const buildingsToCreate: { name: string; ages: Age[], sexes: Sex[];}[] = [
-		{ name: 'male, adult 1', ages: [adultAge], sexes: [maleSex] },
-		{ name: 'male, adult 2', ages: [adultAge], sexes: [maleSex] },
-		{ name: 'male, juv 1', ages: [juvAge], sexes: [maleSex] },
-		{ name: 'male, juv 2', ages: [juvAge], sexes: [maleSex] },
-		{ name: 'female, adult 1', ages: [adultAge], sexes: [femaleSex] },
-		{ name: 'female, adult 2', ages: [adultAge], sexes: [femaleSex] },
-		{ name: 'female, juv 1', ages: [juvAge], sexes: [femaleSex] },
-		{ name: 'female, juv 2', ages: [juvAge], sexes: [femaleSex] },
-		{ name: 'mixed sex, adult 1', ages: [adultAge], sexes: [femaleSex, maleSex] },
-		{ name: 'mixed sex, adult 2', ages: [adultAge], sexes: [femaleSex, maleSex] },
-		{ name: 'mixed sex, mixed age 1', ages: [adultAge, juvAge], sexes: [femaleSex, maleSex] },
-		{ name: 'mixed sex, mixed age 2', ages: [adultAge, juvAge], sexes: [femaleSex, maleSex] }
-	]
+	const child2Program = new Program();
+	child2Program.name = 'child2 program';
+	child2Program.category = child2;
 
-	const buildingCreatePromises = buildingsToCreate.map(({ name, ages, sexes }) => {
-		const building = new Building();
-		building.name = name;
-		building.ages = ages;
-		building.sexes = sexes;
+	await connection.manager.save(parent);
+	await connection.manager.save(child1);
+	await connection.manager.save(child2);
+	await connection.manager.save(parentProgram);
+	await connection.manager.save(child1Program);
+	await connection.manager.save(child2Program);
 
-		return connection.manager.save(building);
-	});
+	const qb = await connection.manager.getRepository(Program).createQueryBuilder('program')
 
-	await Promise.all(buildingCreatePromises);
 
-	console.log("Loading buildings from the database...\n");
+	// select * from program program where program.categoryid IN (select id from category category where category.parentid = 1) or program.categoryid = 1
 
-	const buildings = await connection.manager.getRepository(Building).createQueryBuilder('building')
-		.innerJoin('building.ages', 'ageCheck', 'ageCheck.code = :ageCode', { ageCode: 'ADULT' })
-		.innerJoin('building.sexes', 'sexCheck', 'sexCheck.code = :sexCode', { sexCode: 'MALE' })
-		.innerJoinAndSelect('building.ages', 'age')
-		.innerJoinAndSelect('building.sexes', 'sex')
-		.getMany();
+	const programs = await qb
+			.where("program.category IN " + qb.subQuery().select("category.id").from(Category, "category").where("category.parentId = :categoryId").getQuery())
+			.orWhere('program.category = :categoryId')
+            .setParameter("categoryId", 1)
+            .getMany();
 
-	buildings.forEach(building => {
-		console.log(`** ${building.name} - ${building.sexes.map(sex => sex.name)} - ${building.ages.map(age => age.name)}`);
-	})
-	console.log(`query returned ${buildings.length} rows`);
+	// const programs = await qb
+	// 	.select('id')
+	// 	.from(Category, 'category')
+	// 	.where('category.parent = :parentId', { parentId: 1})
+	// 	.getMany();
+	// .where('program.category = :categoryId', { categoryId: 1 })
+	// 	.leftJoinAndMapMany('program.category', 'children', 'childCategories', 'category.id = program.category')
+	// 	.orWhere('program.category IN (:...childCategories)')
+	// 	// .leftJoinAndSelect('program', 'program', 'program.category IN (...childCategories')
+	// 	.getMany();
+
+	// const program = await connection.manager.getRepository(Program).findOne({
+
+	// 	join: {
+	// 		alias: 'enrollment',
+	// 		leftJoinAndSelect: {
+	// 			status: 'enrollment.status'
+	// 		}
+	// 	}
+	// })
+
+	console.log('\n\n');
+	console.log(JSON.stringify(programs));
+	console.log('\n\n');
 
 	connection.close();
 }).catch(error => console.log(error));
